@@ -114,10 +114,16 @@ function loanInfo(l){const r=l.rate/100/12;let months=null;
   return{interest:l.balance*r,months};}
 
 /* ---------- Navigasjon ---------- */
-const TABS=[['home','🏠','Oversikt'],['tx','🧾','Transaksjoner'],['budget','📊','Budsjett'],['chat','💬','Rådgiver'],['more','⚙️','Mer']];
+const ICONS={
+  home:'<path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/>',
+  tx:'<path d="M5 6h14M5 12h14M5 18h9"/>',
+  budget:'<path d="M12 3a9 9 0 1 0 9 9h-9z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"/>',
+  chat:'<path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-5 4v-4H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/>',
+  more:'<path d="M5 8h9M18 8h1M5 16h1M10 16h9"/><circle cx="16" cy="8" r="2"/><circle cx="8" cy="16" r="2"/>'};
+const TABS=[['home','Oversikt'],['tx','Posteringer'],['budget','Budsjett'],['chat','Rådgiver'],['more','Mer']];
 function go(v){view=v;render();scrollTo(0,0)}
 function render(){
-  $('#nav').innerHTML=TABS.map(([k,i,l])=>`<button class="${k===view?'on':''}" onclick="go('${k}')"><span>${i}</span>${l}</button>`).join('');
+  $('#nav').innerHTML=TABS.map(([k,l])=>`<button class="${k===view?'on':''}" onclick="go('${k}')" aria-label="${l}"><svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[k]}</svg>${l}</button>`).join('');
   $('#who').textContent=S.people[S.me];
   ({home:rHome,tx:rTx,budget:rBudget,chat:rChat,more:rMore})[view]();
 }
@@ -125,19 +131,38 @@ function render(){
 /* ---------- Oversikt ---------- */
 function rHome(){
   const T=today(),al=alerts();
-  const pct=T.vb>0?Math.min(T.st.varSpent/T.vb*100,100):100;
-  const top=Object.entries(T.st.byCat).filter(([c])=>CATS[c]==='var').sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const used=T.vb>0?Math.max(T.st.varSpent,0)/T.vb:1,pct=Math.min(used,1),timeP=T.dom/T.dim;
+  const C=2*Math.PI*38,R2=2*Math.PI*30;
+  const top=Object.entries(T.st.byCat).filter(([c])=>CATS[c]==='var').sort((a,b)=>b[1]-a[1]).slice(0,5),maxC=Math.max(1,...top.map(x=>x[1]),...top.map(([c])=>S.limits[c]||0));
+  const dateTxt=new Date().toLocaleDateString('nb-NO',{weekday:'long',day:'numeric',month:'long'});
+  // Søylegraf: variabelt forbruk per dag, med snitt-ramme som stiplet linje
+  const W=320,H=96,bw=W/T.dim,daily=T.vb>0?T.vb/T.dim:0;
+  const maxD=Math.max(daily*1.4,...Object.values(T.st.byDay),1);
+  let bars='';for(let d=1;d<=T.dom;d++){const key=`${T.ym}-${pad(d)}`,v=T.st.byDay[key]||0,h=Math.max(v/maxD*H,v>0?2:0);
+    bars+=`<rect class="${d===T.dom?'bar-today':v>daily&&daily>0?'bar-over':'bar-ok'}" x="${((d-1)*bw+1).toFixed(1)}" y="${(H-h).toFixed(1)}" width="${Math.max(bw-2,1).toFixed(1)}" height="${h.toFixed(1)}" rx="2"/>`}
+  const ly=H-daily/maxD*H;
   $('#app').innerHTML=`
-  <div class="card"><h2>Dagens ramme</h2>
-   <div class="big ${T.leftToday<0?'bad':''}">${kr(T.leftToday)}</div>
-   <div class="mut">igjen i dag · ramme ${kr(T.allowance)} · brukt ${kr(T.spentToday)}</div>
-   <div class="bar ${T.remaining<0?'over':''}"><i style="width:${pct}%"></i></div>
-   <div class="mut">${kr(T.st.varSpent)} av ${kr(T.vb)} variabelt budsjett · ${T.left} dager igjen i ${monthName(T.ym)}</div></div>
+  <section class="hero" aria-label="Dagens ramme">
+   <div class="eyebrow">${esc(dateTxt)}</div>
+   <div class="hero-main">
+    <div><div class="big ${T.leftToday<0?'neg':''}">${kr(T.leftToday)}</div><div class="sub">igjen å bruke i dag</div></div>
+    <div class="ring" role="img" aria-label="${Math.round(used*100)} prosent av variabelt budsjett er brukt">
+     <svg viewBox="0 0 92 92"><circle class="t" cx="46" cy="46" r="38" fill="none" stroke-width="8"/><circle class="v ${used>1?'over':''}" cx="46" cy="46" r="38" fill="none" stroke-width="8" stroke-dasharray="${(C*pct).toFixed(1)} ${C.toFixed(1)}"/>
+     <circle class="t" cx="46" cy="46" r="30" fill="none" stroke-width="3"/><circle class="time" cx="46" cy="46" r="30" fill="none" stroke-width="3" stroke-dasharray="${(R2*timeP).toFixed(1)} ${R2.toFixed(1)}"/></svg>
+     <b>${Math.round(used*100)}%<small>brukt</small></b></div>
+   </div>
+   <div class="hstats"><div><span>Ramme i dag</span><b>${kr(T.allowance)}</b></div><div><span>Brukt i dag</span><b>${kr(T.spentToday)}</b></div><div><span>Dager igjen</span><b>${T.left}</b></div></div>
+  </section>
   <div class="card"><h2>Varsler</h2>${al.map(a=>`<div class="alert ${a.c}">${esc(a.t)}</div>`).join('')}</div>
-  <div class="card"><h2>Denne måneden</h2>
-   ${top.length?top.map(([c,v])=>{const lim=S.limits[c];return`<div class="row" style="justify-content:space-between;margin:4px 0"><span>${c}</span><span class="${lim&&v>lim?'bad':''}">${kr(v)}${lim?` / ${kr(lim)}`:''}</span></div>`}).join(''):'<span class="mut">Ingen variable utgifter ennå.</span>'}
-   <div class="row" style="justify-content:space-between;margin-top:10px"><span class="mut">Faste utgifter (budsjettert)</span><span>${kr(fixedTotal()+loanTotal())}</span></div>
-   <div class="row" style="justify-content:space-between"><span class="mut">Inntekt (${S.income>0?'satt':'estimert'})</span><span>${kr(estIncome())}</span></div></div>`;
+  <div class="card"><h2>Forbruk per dag i ${monthName(T.ym).split(' ')[0]}</h2>
+   <svg class="chart" viewBox="0 0 ${W} ${H+16}" role="img" aria-label="Søylediagram over daglig variabelt forbruk">
+    ${bars}${daily>0?`<line class="lim" x1="0" x2="${W}" y1="${ly.toFixed(1)}" y2="${ly.toFixed(1)}"/>`:''}
+    <text x="0" y="${H+12}">1.</text><text x="${W}" y="${H+12}" text-anchor="end">${T.dim}.</text></svg>
+   <div class="legend"><span><i style="background:var(--acc)"></i>Innenfor</span><span><i style="background:var(--bad)"></i>Over snittramme</span><span>Stiplet: snittramme ${kr(daily)}/dag</span></div></div>
+  <div class="card"><h2>Størst denne måneden</h2>
+   ${top.length?top.map(([c,v])=>{const lim=S.limits[c],over=lim&&v>lim;return`<div class="cat"><div class="l"><span>${c}</span><span class="${over?'bad':''}">${kr(v)}${lim?` av ${kr(lim)}`:''}</span></div><div class="track ${over?'over':''}"><i style="width:${Math.min(v/maxC*100,100).toFixed(0)}%"></i></div></div>`}).join(''):'<span class="mut">Ingen variable utgifter ennå.</span>'}
+   <div class="summary"><span class="mut">Faste utgifter og lån (budsjettert)</span><b>${kr(fixedTotal()+loanTotal())}</b></div>
+   <div class="summary"><span class="mut">Inntekt (${S.income>0?'satt':'estimert'})</span><b>${kr(estIncome())}</b></div></div>`;
   maybeNotify(T);
 }
 async function maybeNotify(T){
